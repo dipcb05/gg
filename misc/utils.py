@@ -19,17 +19,24 @@ def store_google_credentials(request, credentials):
 def generate_google_url(request):
     redirect_uri = os.getenv('GOOGLE_REDIRECT_URI')
     client_id = os.getenv('GOOGLE_CLIENT_ID')
-    scopes = os.getenv('GOOGLE_FIT_SCOPES').split(',')
-    flow = InstalledAppFlow.from_client_config(client_config={
+    client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
+    scope = os.getenv('GOOGLE_FIT_SCOPE')
+
+    flow = InstalledAppFlow.from_client_config(
+    client_config={
         'installed': {
             'client_id': client_id,
-            'client_secret': os.getenv('GOOGLE_CLIENT_SECRET'),
-            'redirect_uri': redirect_uri,
+            'client_secret': client_secret,
+            'redirect_uris': [redirect_uri],
             'auth_uri': os.getenv('GOOGLE_AUTH_URI'),
             'token_uri': os.getenv('GOOGLE_TOKEN_URI')
         }
-    }, scopes=scopes)
+    },
+    scopes=scope,
+    redirect_uri=redirect_uri
+    )
     authorization_url, _ = flow.authorization_url(prompt='consent')
     auth_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
     request.session['google_auth_state'] = state
+    dd(authorization_url);
     return authorization_url
