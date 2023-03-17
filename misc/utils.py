@@ -1,42 +1,41 @@
-import os
-import google.auth
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+# utils.py
+
+from django.conf import settings
+from django.http import HttpResponseBadRequest, JsonResponse
+from django.shortcuts import redirect
+from django.urls import reverse
+from django.contrib.auth import login
+from django.contrib.auth.decorators import login_required
+from allauth.socialaccount.providers.google.views import GoogleOAuth2Adapter
+from allauth.socialaccount import providers
+from allauth.socialaccount.models import SocialAccount
+import requests
+import json
 from django.core.cache import cache
 
-def get_google_credentials(request):
-    user_id = str(request.user.id)
-    credentials_json = cache.get(user_id)
-    if credentials_json:
-        return Credentials.from_authorized_user_info(info=credentials_json)
-    return None
+def authenticate_with_google(request):
+    adapter = GoogleOAuth2Adapter(client_id=settings.SOCIALACCOUNT_PROVIDERS['google']['APP']['client_id'],
+                                  client_secret=settings.SOCIALACCOUNT_PROVIDERS['google']['APP']['secret'],
+                                  redirect_uri=request.build_absolute_uri(reverse('google_auth_callback')))
+    provider = providers.registry.by_id('google')
+    login_url = provider.get_login_url(request, adapter)
+    return redirect(login_url)
 
-def store_google_credentials(request, credentials):
-    user_id = str(request.user.id)
-    credentials_json = credentials.to_authorized_user_info()
-    cache.set(user_id, credentials_json)
-    
-def generate_google_url(request):
-    redirect_uri = os.getenv('GOOGLE_REDIRECT_URI')
-    client_id = os.getenv('GOOGLE_CLIENT_ID')
-    client_secret = os.getenv('GOOGLE_CLIENT_SECRET')
-    scope = os.getenv('GOOGLE_FIT_SCOPE')
+@login_required
+def google_auth_callback(request):
+    adapter = GoogleOAuth2Adapter(client_id=settings.SOCIALACCOUNT_PROVIDERS['google']['APP']['client_id'],
+                                  client_secret=settings.SOCIALACCOUNT_PROVIDERS['google']['APP']['secret'],
+                                  redirect_uri=request.build_absolute_uri(reverse('google_auth_callback')))
+    provider = providers.registry.by_id('google')
+    sociallogin = provider.complete_login(request, adapter, response=None)
+    token = sociallogin.token.token
+    access_token = token['access_token']
+    return JsonResponse({'access_token': access_token})
 
-    flow = InstalledAppFlow.from_client_config(
-    client_config={
-        'installed': {
-            'client_id': client_id,
-            'client_secret': client_secret,
-            'redirect_uris': [redirect_uri],
-            'auth_uri': os.getenv('GOOGLE_AUTH_URI'),
-            'token_uri': os.getenv('GOOGLE_TOKEN_URI')
-        }
-    },
-    scopes=scope,
-    redirect_uri=redirect_uri
-    )
-    authorization_url, _ = flow.authorization_url(prompt='consent')
-    auth_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
-    request.session['google_auth_state'] = state
-    dd(authorization_url);
-    return authorization_url
+def cache_access_token(request):
+    access_token = request.GET.get('access_token')
+    if access_token:
+        cache.set('google_access_token', access_token, timeout=None)
+        return JsonResponse({'status': 'success'})
+    else:
+        return HttpResponseBadRequest()
